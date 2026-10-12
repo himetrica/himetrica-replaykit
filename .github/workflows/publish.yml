@@ -1,0 +1,53 @@
+# Publishes this package to npm when the monorepo's release mirror pushes a vX.Y.Z tag.
+#
+# This repo is the public mirror of the SDK; versions are decided upstream (Changesets)
+# and arrive here as one "Release x.y.z" commit + tag. Building and publishing HERE lets
+# npm show provenance for public repos: the package page links to this commit and run.
+#
+# Secret: NPM_TOKEN.
+
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  # Re-run a release by hand (Actions tab -> Publish -> Run workflow, pick the vX.Y.Z tag as ref).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then echo "Tag v$tag does not match package.json $version" >&2; exit 1; fi
+
+      - run: npm install --no-audit --no-fund
+
+      - run: npm run build
+
+      - name: Typecheck and test (when the package has them)
+        run: |
+          npm run --if-present typecheck
+          npm run --if-present test
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PRIVATE_REPO: ${{ github.event.repository.private }}
+        run: |
+          # Provenance only works from a public repository.
+          if [ "$PRIVATE_REPO" = "false" ]; then npm publish --access public --provenance; else npm publish --access public; fi
