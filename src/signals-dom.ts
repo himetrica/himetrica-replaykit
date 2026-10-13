@@ -95,6 +95,8 @@ export class SignalCollector {
   private rage = new RageDetector();
   private rageEl: Element | null = null;
   private rageTimer: ReturnType<typeof setTimeout> | null = null;
+  private elKeys = new WeakMap<Element, string>();
+  private elSeq = 0;
   private lastHref = "";
   private hrefTimer: ReturnType<typeof setInterval> | null = null;
   private unloading = false;
@@ -178,14 +180,27 @@ export class SignalCollector {
     this.h.input("click", ts);
     const el = clickedElement(e.target);
     if (!el) return;
+    // Text, backgrounds and fields promise nothing: clicking them fast (selecting a paragraph) is not friction.
+    if (!isDeadClickCandidate(targetFacts(el))) {
+      const ended = this.rage.interrupt();
+      if (ended) this.reportRage(ended.count, ended.first.ts);
+      return;
+    }
     const selector = selectorOf(el);
-    const r = this.rage.onClick({ x: e.clientX, y: e.clientY, ts, target: selector });
+    const r = this.rage.onClick({ x: e.clientX, y: e.clientY, ts, target: this.keyOf(el) });
     if (r.finished) this.reportRage(r.finished.count, r.finished.first.ts);
     if (r.trigger) this.h.trigger("rage_click");
-    this.rageEl = this.rage.currentCount() === 1 ? el : this.rageEl;
+    if (this.rage.currentCount() === 1) this.rageEl = el;
     if (this.rageTimer) clearTimeout(this.rageTimer);
     this.rageTimer = setTimeout(() => this.flushRage(false), RAGE_WINDOW_MS + 50);
     if (this.rage.currentCount() === 1) this.watchDeadClick(el, selector, ts);
+  }
+
+  /** One key per DOM node: list items share a selector but are not the same button. */
+  private keyOf(el: Element): string {
+    let k = this.elKeys.get(el);
+    if (!k) this.elKeys.set(el, (k = String(++this.elSeq)));
+    return k;
   }
 
   private flushRage(force: boolean): void {
@@ -198,8 +213,8 @@ export class SignalCollector {
     this.emit({ type: "rage_click", ts, count, selector: el ? selectorOf(el) : undefined, text: el ? visibleText(el, this.h.maskAllText()) : undefined });
   }
 
+  /** Only called for candidate clicks (see onClick). */
   private watchDeadClick(el: Element, selector: string, ts: number): void {
-    if (!isDeadClickCandidate(targetFacts(el))) return;
     const hrefBefore = location.href;
     const scrollBefore = `${scrollX},${scrollY}`;
     const focusBefore = document.activeElement;

@@ -1,5 +1,11 @@
 # @himetrica/replaykit
 
+## 0.2.1
+
+### Patch Changes
+
+- 1da5a8a: Fewer false rage clicks: only clicks on elements that promise something (links, buttons, pointer cursor) count, so selecting text with a triple click is no longer rage; a burst is one DOM element, not every element sharing a selector; and the first 3 clicks must land within 1 s, so steady slow clicking does not add up.
+
 ## 0.2.0
 
 ### Minor Changes

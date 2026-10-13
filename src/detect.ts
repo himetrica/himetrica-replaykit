@@ -5,11 +5,16 @@ export interface ClickPoint {
   x: number;
   y: number;
   ts: number;
-  /** Stable key of the clicked element (its selector), so a burst on one button counts even if the mouse drifts. */
+  /** Identity of the clicked element (one key per DOM node), so a burst on one button counts even if the mouse drifts. */
   target: string;
 }
 
-/** 3+ clicks within RAGE_WINDOW_MS, on the same element or within RAGE_RADIUS_PX of the first. */
+/**
+ * Rage click: RAGE_MIN_CLICKS clicks on the same element (or within RAGE_RADIUS_PX of the first)
+ * inside RAGE_WINDOW_MS; once it is rage, the burst goes on while clicks keep coming less than
+ * RAGE_WINDOW_MS apart. Only clicks on elements that promise something are fed (see signals-dom),
+ * so selecting text with a triple click is not rage.
+ */
 export const RAGE_MIN_CLICKS = 3;
 export const RAGE_WINDOW_MS = 1000;
 export const RAGE_RADIUS_PX = 30;
@@ -18,13 +23,15 @@ export interface RageBurst {
   first: ClickPoint;
   count: number;
   lastTs: number;
+  /** Last click of the burst, so a burst too slow to become rage can slide forward. */
+  last: ClickPoint;
 }
 
 /**
  * Feeds clicks in order. `onClick` returns "trigger" on the click that turns a burst
  * into a rage click (the 3rd), so recording starts right away; the finished burst
- * (with its final count) comes out of `onClick` of the next unrelated click or of
- * `flush(now)` once the window has passed.
+ * (with its final count) comes out of `onClick` of the next unrelated click, of
+ * `interrupt()`, or of `flush(now)` once the window has passed.
  */
 export class RageDetector {
   private burst: RageBurst | null = null;
@@ -32,13 +39,26 @@ export class RageDetector {
   onClick(c: ClickPoint): { trigger: boolean; finished: RageBurst | null } {
     const b = this.burst;
     if (b && c.ts - b.lastTs <= RAGE_WINDOW_MS && near(b.first, c)) {
-      b.count++;
-      b.lastTs = c.ts;
-      return { trigger: b.count === RAGE_MIN_CLICKS, finished: null };
+      if (b.count >= RAGE_MIN_CLICKS || c.ts - b.first.ts <= RAGE_WINDOW_MS) {
+        b.count++;
+        b.lastTs = c.ts;
+        b.last = c;
+        return { trigger: b.count === RAGE_MIN_CLICKS, finished: null };
+      }
+      // Steady clicking slower than the window: restart from the previous click (2 clicks so far).
+      this.burst = { first: b.last, count: 2, lastTs: c.ts, last: c };
+      return { trigger: false, finished: null };
     }
     const finished = b && b.count >= RAGE_MIN_CLICKS ? b : null;
-    this.burst = { first: c, count: 1, lastTs: c.ts };
+    this.burst = { first: c, count: 1, lastTs: c.ts, last: c };
     return { trigger: false, finished };
+  }
+
+  /** A click that cannot be rage (text, background, a field) ends the current burst. */
+  interrupt(): RageBurst | null {
+    const b = this.burst;
+    this.burst = null;
+    return b && b.count >= RAGE_MIN_CLICKS ? b : null;
   }
 
   /** The burst that ended (quiet for the window) before `now`, if it was a rage click. */

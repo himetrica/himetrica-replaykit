@@ -163,6 +163,25 @@ test("rage click: an unrelated click closes the burst", () => {
   assert.equal(out.finished?.count, 3);
 });
 
+test("rage click: the first 3 clicks must fit in the window, steady clicking is not rage", () => {
+  const r = new RageDetector();
+  const c = (ts: number) => r.onClick({ x: 0, y: 0, ts, target: "a" });
+  // 700 ms apart forever: every pair is inside the window, but 3 never fit in 1 s.
+  for (const ts of [0, 700, 1400, 2100, 2800]) assert.equal(c(ts).trigger, false);
+  // Then a fast 3rd: slides from the previous click and becomes rage.
+  assert.equal(c(3100).trigger, true);
+});
+
+test("rage click: interrupt ends the burst and reports it only if it was rage", () => {
+  const r = new RageDetector();
+  r.onClick({ x: 0, y: 0, ts: 0, target: "a" });
+  r.onClick({ x: 0, y: 0, ts: 100, target: "a" });
+  assert.equal(r.interrupt(), null, "2 clicks are not rage");
+  assert.equal(r.onClick({ x: 0, y: 0, ts: 200, target: "a" }).trigger, false, "the burst started over");
+  for (const ts of [300, 400]) r.onClick({ x: 0, y: 0, ts, target: "a" });
+  assert.equal(r.interrupt()?.count, 3);
+});
+
 test("dead click: only promising elements, and only when nothing reacted", () => {
   const base = { tag: "div", insideInteractive: false, isFormField: false, pointerCursor: false, hasSelection: false };
   assert.equal(isDeadClickCandidate(base), false, "plain text is not friction");
