@@ -20,7 +20,7 @@ import { readIdentity } from "./identity";
 import { inSample, matchAny, stripUrl } from "./match";
 import { trimBuffer, BUFFER_WINDOW_MS, CHECKOUT_MS, EVENT_FULL_SNAPSHOT, type RrEvent } from "./buffer";
 import { activeIncrement } from "./detect";
-import { decidePage } from "./decide";
+import { decidePage, waitBeforeRecording } from "./decide";
 import { Api, backoff } from "./transport";
 import { SignalQueue } from "./signal-queue";
 import { SignalCollector } from "./signals-dom";
@@ -71,6 +71,16 @@ export class ReplayKitClient {
   private lastInputTs = 0;
   /** A trigger that fired before /init answered. */
   private earlyTrigger: ReplayKitTrigger | null = null;
+  /** A trigger waiting for the session to reach minDurationMs on screen. */
+  private pending: ReplayKitTrigger | null = null;
+  /** Bumped on every wait scheduled, so only the latest timer acts. */
+  private pendingGen = 0;
+  /** Visible time of the session's earlier pages (state.visibleMs, read once ids are known). */
+  private baseVisibleMs = 0;
+  /** Visible time of this page so far, excluding the current visible stretch. */
+  private pageVisibleMs = 0;
+  /** Start of the current visible stretch, null while the tab is hidden. */
+  private visibleSince: number | null = null;
   private destroyed = false;
   private offWindow: Array<() => void> = [];
 
@@ -93,6 +103,7 @@ export class ReplayKitClient {
       this.log("localhost: idle (allowLocalhost to enable)");
       return;
     }
+    this.trackVisibility();
     const started = this.env.now();
     const tryIds = () => {
       if (this.destroyed) return;
@@ -111,6 +122,7 @@ export class ReplayKitClient {
 
   private boot(): void {
     const ids = this.ids!;
+    this.baseVisibleMs = this.states.load(ids.sid).visibleMs ?? 0;
     this.queue = new SignalQueue(this.env, this.api, () => ({ ...ids, rid: this.mode === "live" ? this.state().rid : undefined }));
     this.collector = new SignalCollector({
       now: () => this.env.now(),
@@ -214,7 +226,7 @@ export class ReplayKitClient {
       if (this.mode !== "buffer") return;
       const t = mode.kind === "start" ? mode.trigger : this.earlyTrigger;
       this.earlyTrigger = null;
-      if (t && this.triggerEnabled(t)) this.promote(t);
+      if (t && this.triggerEnabled(t)) this.requestPromote(t);
     });
   }
 
@@ -283,7 +295,59 @@ export class ReplayKitClient {
       this.earlyTrigger ??= t;
       return;
     }
-    this.promote(t);
+    this.requestPromote(t);
+  }
+
+  // ── Minimum duration ──────────────────────────────────────
+
+  private trackVisibility(): void {
+    if (document.visibilityState === "visible") this.visibleSince = this.env.now();
+    const onVis = () => {
+      const now = this.env.now();
+      if (document.visibilityState === "hidden") {
+        if (this.visibleSince !== null) this.pageVisibleMs += now - this.visibleSince;
+        this.visibleSince = null;
+      } else if (this.visibleSince === null) {
+        this.visibleSince = now;
+        // Hidden tabs do not count: the wait resumes where it stopped.
+        if (this.pending) this.schedulePending();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    this.offWindow.push(() => document.removeEventListener("visibilitychange", onVis));
+  }
+
+  /** Session time on screen: earlier pages + this one, the current visible stretch included. */
+  private visibleMs(): number {
+    const live = this.visibleSince !== null ? this.env.now() - this.visibleSince : 0;
+    return this.baseVisibleMs + this.pageVisibleMs + live;
+  }
+
+  /** Open the recording now, or once the session has been on screen for minDurationMs. */
+  private requestPromote(t: ReplayKitTrigger): void {
+    const wait = waitBeforeRecording(t, this.visibleMs(), this.config?.minDurationMs ?? 0);
+    if (wait === 0) {
+      this.pending = null;
+      this.promote(t);
+      return;
+    }
+    // The first waiting trigger is the one the recording reports.
+    this.pending ??= t;
+    this.log("waiting for the minimum duration:", t, wait, "ms");
+    this.schedulePending();
+  }
+
+  private schedulePending(): void {
+    const t = this.pending;
+    if (!t) return;
+    const gen = ++this.pendingGen;
+    const wait = waitBeforeRecording(t, this.visibleMs(), this.config?.minDurationMs ?? 0);
+    this.env.setTimer(() => {
+      if (gen !== this.pendingGen || this.pending !== t || this.mode !== "buffer" || this.destroyed) return;
+      // Hidden meanwhile: the visibilitychange handler reschedules when the tab comes back.
+      if (this.visibleSince === null) return;
+      this.requestPromote(t);
+    }, Math.max(wait, 50));
   }
 
   private promote(t: ReplayKitTrigger): void {
@@ -293,7 +357,10 @@ export class ReplayKitClient {
     this.buffer = [];
     const startedAt = events.length ? events[0].timestamp : now;
     const stats = emptyStats(startedAt, stripUrl(location.href));
-    stats.endedAt = events.length ? events[events.length - 1].timestamp : now;
+    // The visit lasted until now even if the page was quiet: a recording opened after the
+    // minimum duration must not read as shorter than it (the API hides short ones).
+    stats.endedAt = Math.max(events.length ? events[events.length - 1].timestamp : now, now);
+    this.pending = null;
     let last = 0;
     for (const r of this.recent) {
       if (r.ts < startedAt) continue;
@@ -382,6 +449,8 @@ export class ReplayKitClient {
   private listenPage(): void {
     const hide = (unloading: boolean) => {
       if (unloading) this.collector?.pageHide();
+      // The next page of the session continues the minimum-duration count from here.
+      this.states.save({ ...this.state(), visibleMs: this.visibleMs() });
       this.queue?.beacon();
       if (this.mode === "live") {
         this.saveStats();

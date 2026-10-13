@@ -33,6 +33,19 @@ export interface DecideInput {
   checkout: boolean;
 }
 
+/** Triggers that open a recording however short the visit is (same list as the API's). */
+export const MIN_DURATION_EXEMPT: readonly ReplayKitTrigger[] = ["error", "rage_click", "manual"];
+
+/**
+ * How long trigger `t` still has to wait before it may open a recording, given how long the
+ * session has been on screen. 0 = open it now. A bounce never reaches the minimum, so it never
+ * opens a recording nor costs quota; an error or a rage click does not wait.
+ */
+export function waitBeforeRecording(t: ReplayKitTrigger, visibleMs: number, minDurationMs: number): number {
+  if (minDurationMs <= 0 || MIN_DURATION_EXEMPT.includes(t)) return 0;
+  return Math.max(0, minDurationMs - visibleMs);
+}
+
 export function decidePage(i: DecideInput): PageMode {
   // An explicit ReplayKit.consent(false) wins even when the project does not require consent.
   if (!i.record || !i.canGzip || i.state.stopped || i.excluded || i.consent === false) return { kind: "off" };

@@ -1,5 +1,11 @@
 # @himetrica/replaykit
 
+## 0.2.0
+
+### Minor Changes
+
+- 38cdd85: Minimum recording duration: sampled, checkout and paying recordings start only after the visit has been on screen for the project's minimum (5 s by default). Errors and rage clicks still record right away.
+
 ## 0.1.0
 
 ### Minor Changes

@@ -15,6 +15,7 @@ export interface ReplayKitClientConfig {
   blockSelectors: string[];
   maskAllText: boolean;
   requireConsent: boolean;
+  minDurationMs: number;
 }
 
 export interface ReplayKitInitRequest {

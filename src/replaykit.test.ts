@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { inSample, matchAny, matchPath, sampleDraw, stripUrl } from "./match";
 import { activeIncrement, isDeadClick, isDeadClickCandidate, RageDetector } from "./detect";
 import { pagesOf, PAGE_TAG, trimBuffer, type RrEvent } from "./buffer";
-import { decidePage, type DecideInput } from "./decide";
+import { decidePage, waitBeforeRecording, type DecideInput } from "./decide";
 import { outcomeOf, Api } from "./transport";
 import { StateStore, emptyStats } from "./state";
 import { Uploader } from "./uploader";
@@ -240,6 +240,16 @@ test("decidePage table", () => {
   assert.deepEqual(decidePage({ ...base, forceTrigger: "paying" }), { kind: "start", trigger: "paying" });
   assert.deepEqual(decidePage({ ...base, checkout: true }), { kind: "start", trigger: "checkout" });
   assert.deepEqual(decidePage({ ...base, sampled: true }), { kind: "start", trigger: "sample" });
+});
+
+test("minimum duration: bounces wait, errors and rage clicks never do", () => {
+  assert.equal(waitBeforeRecording("sample", 0, 5000), 5000);
+  assert.equal(waitBeforeRecording("checkout", 3200, 5000), 1800);
+  assert.equal(waitBeforeRecording("paying", 7000, 5000), 0);
+  assert.equal(waitBeforeRecording("sample", 0, 0), 0);
+  assert.equal(waitBeforeRecording("error", 0, 5000), 0);
+  assert.equal(waitBeforeRecording("rage_click", 0, 5000), 0);
+  assert.equal(waitBeforeRecording("manual", 0, 5000), 0);
 });
 
 // ── transport.ts / uploader.ts ──────────────────────────────

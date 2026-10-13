@@ -19,6 +19,8 @@ export interface SessionState {
   /** Set when recording must not (re)start for the rest of the session. */
   stopped?: StopReason;
   stats?: ReplayKitRecordingStats;
+  /** Visible tab time of the session's earlier pages, for the minimum duration. */
+  visibleMs?: number;
 }
 
 const KEY = "hm_rk_state";
