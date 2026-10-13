@@ -1,5 +1,11 @@
 # @himetrica/replaykit
 
+## 0.2.2
+
+### Patch Changes
+
+- 039f51d: Recordings now end on their own: after 20 minutes, or after 10 minutes without a click, key or scroll (page mutations alone no longer keep a recording going). What was captured up to that point is still uploaded; nothing more is recorded for the rest of the session. The API enforces the same limits for every SDK version.
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,6 +1,8 @@
 // Friction detectors, DOM-free so node:test can drive them with plain numbers.
 // signals-dom.ts feeds them real clicks and reports what they decide.
 
+import { REPLAYKIT_MAX_DURATION_MS, REPLAYKIT_MAX_IDLE_MS } from "./protocol";
+
 export interface ClickPoint {
   x: number;
   y: number;
@@ -120,6 +122,16 @@ export interface AfterClickReaction {
 /** Nothing reacted within DEAD_CLICK_WAIT_MS: the click was dead. */
 export function isDeadClick(r: AfterClickReaction): boolean {
   return r.mutations === 0 && !r.urlChanged && !r.scrolled && !r.focusChanged && !r.unloading;
+}
+
+/**
+ * A live recording past REPLAYKIT_MAX_DURATION_MS since it started, or REPLAYKIT_MAX_IDLE_MS since the
+ * last input (or its start, before any input), is over. Page mutations alone don't keep it alive.
+ */
+export function recordingOver(startedAt: number, lastInputTs: number, now: number): "duration" | "idle" | null {
+  if (now - startedAt > REPLAYKIT_MAX_DURATION_MS) return "duration";
+  if (now - Math.max(startedAt, lastInputTs) > REPLAYKIT_MAX_IDLE_MS) return "idle";
+  return null;
 }
 
 /** Active time: input gaps up to ACTIVE_GAP_MS count, longer gaps are idle. */

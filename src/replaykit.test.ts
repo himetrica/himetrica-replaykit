@@ -451,3 +451,18 @@ test("pagesOf: page loads + SPA marks, query stripped, checkout repeats folded",
   assert.deepEqual(pagesOf([{ type: 4, timestamp: 60_000, data: { href: "https://a.com/y" } }], "https://a.com/y", 50), []);
   assert.equal(pagesOf(ev, "", 1).length, 1);
 });
+
+test("recordingOver: ends at the max length, and after the idle limit counted from the last input (or the start)", async () => {
+  const { recordingOver } = await import("./detect");
+  const { REPLAYKIT_MAX_DURATION_MS: MAX, REPLAYKIT_MAX_IDLE_MS: IDLE } = await import("./protocol");
+  const t0 = 1_000_000;
+  assert.equal(recordingOver(t0, 0, t0 + 60_000), null);
+  // active the whole time: only the max length ends it
+  assert.equal(recordingOver(t0, t0 + MAX - 1000, t0 + MAX - 500), null);
+  assert.equal(recordingOver(t0, t0 + MAX, t0 + MAX + 1), "duration");
+  // no input since the start: idle once IDLE passes
+  assert.equal(recordingOver(t0, 0, t0 + IDLE + 1), "idle");
+  // input a while ago: idle counts from it
+  assert.equal(recordingOver(t0, t0 + 2 * 60_000, t0 + 2 * 60_000 + IDLE - 1), null);
+  assert.equal(recordingOver(t0, t0 + 2 * 60_000, t0 + 2 * 60_000 + IDLE + 1), "idle");
+});

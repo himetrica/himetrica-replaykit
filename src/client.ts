@@ -19,7 +19,7 @@ import { browserEnv, isBrowser, type Env } from "./env";
 import { readIdentity } from "./identity";
 import { inSample, matchAny, stripUrl } from "./match";
 import { trimBuffer, BUFFER_WINDOW_MS, CHECKOUT_MS, EVENT_FULL_SNAPSHOT, type RrEvent } from "./buffer";
-import { activeIncrement } from "./detect";
+import { activeIncrement, recordingOver } from "./detect";
 import { decidePage, waitBeforeRecording } from "./decide";
 import { Api, backoff } from "./transport";
 import { SignalQueue } from "./signal-queue";
@@ -264,9 +264,21 @@ export class ReplayKitClient {
       return;
     }
     if (this.mode === "live" && this.uploader) {
+      if (this.endIfOver(e.timestamp)) return;
       if (this.stats) this.stats.endedAt = Math.max(this.stats.endedAt, e.timestamp);
       this.uploader.add(e);
     }
+  }
+
+  /** Too long or idle too long: what was captured still goes up, nothing more is recorded this session. */
+  private endIfOver(now: number): boolean {
+    if (this.mode !== "live" || !this.stats) return false;
+    const over = recordingOver(this.stats.startedAt, this.lastInputTs, now);
+    if (!over) return false;
+    void this.uploader?.flush();
+    this.stopRecording("limit");
+    this.log("recording over:", over);
+    return true;
   }
 
   private makeUploader(): void {
@@ -408,6 +420,8 @@ export class ReplayKitClient {
   }
 
   private onInput(kind: "click" | "key" | "scroll", ts: number): void {
+    // Coming back after the idle limit ends the recording instead of stretching it.
+    this.endIfOver(ts);
     if (this.mode === "live" && this.stats) {
       this.stats.activeMs += activeIncrement(this.lastInputTs, ts);
       if (kind === "click") this.stats.clicks++;

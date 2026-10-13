@@ -91,4 +91,8 @@ export interface ReplayKitChunkFile {
 export const REPLAYKIT_MAX_CHUNK_BYTES = 2 * 1024 * 1024;
 export const REPLAYKIT_MAX_CHUNKS = 600;
 export const REPLAYKIT_MAX_PAGES_PER_CHUNK = 50;
+/** A recording ends after this long (a tab left open for hours is not one visit). */
+export const REPLAYKIT_MAX_DURATION_MS = 20 * 60_000;
+/** A recording ends after this long without a click, key or scroll. */
+export const REPLAYKIT_MAX_IDLE_MS = 10 * 60_000;
 export const REPLAYKIT_MAX_SIGNALS_PER_BATCH = 50;
