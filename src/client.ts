@@ -387,7 +387,7 @@ export class ReplayKitClient {
     }
     this.recent = [];
     this.stats = stats;
-    this.states.save({ ...this.state(), rid: this.env.uuid(), seq: 0, trigger: t, stats, stopped: undefined });
+    this.states.save({ ...this.state(), rid: this.env.uuid(), seq: 0, rawBytes: 0, trigger: t, stats, stopped: undefined });
     this.mode = "live";
     this.log("recording:", t);
     this.makeUploader();
@@ -495,7 +495,7 @@ export class ReplayKitClient {
     if (reason) this.log("manual trigger:", reason);
     if (this.state().stopped === "manual") {
       // Started again after ReplayKit.stop(): a new recording, decided like a fresh page.
-      this.states.save({ ...this.state(), stopped: undefined, rid: undefined, seq: 0, trigger: undefined, stats: undefined });
+      this.states.save({ ...this.state(), stopped: undefined, rid: undefined, seq: 0, rawBytes: 0, trigger: undefined, stats: undefined });
       this.uploader = null;
       this.earlyTrigger = "manual";
       this.decide();

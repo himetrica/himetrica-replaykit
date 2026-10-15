@@ -388,6 +388,24 @@ test("uploader: an oversized chunk is split in halves", async () => {
   assert.equal(states.load("s1").seq, 2);
 });
 
+test("uploader: a recording ends once its raw JSON would pass the cap", async () => {
+  const f = fakeEnv();
+  const api = new Api(f.env, "https://api.test", "hm_key");
+  const states = new StateStore(f.env);
+  states.save({ sid: "s1", rid: "r1", seq: 0, rawBytes: 0, trigger: "error", stats: emptyStats(f.env.now(), "https://x.test/") });
+  const stops: string[] = [];
+  const up = new Uploader(f.env, api, states, { sid: "s1", vid: "v1" }, { onStop: (r) => stops.push(r) }, 5000);
+  up.addMany([ev(2, 1, "x".repeat(2000))]);
+  await up.flush();
+  assert.equal(states.load("s1").seq, 1);
+  assert.ok((states.load("s1").rawBytes ?? 0) > 2000);
+  up.addMany([ev(3, 2, "x".repeat(4000))]);
+  await up.flush();
+  assert.deepEqual(stops, ["limit"]);
+  assert.equal(states.load("s1").seq, 1, "the chunk over the cap is not sent");
+  assert.equal(f.calls.filter((c) => c.url.includes("/r/chunk")).length, 1);
+});
+
 // ── signal-queue.ts ─────────────────────────────────────────
 
 const sig = (ts: number, type: ReplayKitSignal["type"] = "dead_click", selector = "div.a"): ReplayKitSignal => ({ type, ts, url: "https://x.test/", selector });

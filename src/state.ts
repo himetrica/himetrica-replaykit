@@ -21,6 +21,8 @@ export interface SessionState {
   stats?: ReplayKitRecordingStats;
   /** Visible tab time of the session's earlier pages, for the minimum duration. */
   visibleMs?: number;
+  /** Raw JSON already uploaded for this recording (the per-recording size cap). */
+  rawBytes?: number;
 }
 
 const KEY = "hm_rk_state";

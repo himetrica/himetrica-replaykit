@@ -1,5 +1,11 @@
 # @himetrica/replaykit
 
+## 0.2.3
+
+### Patch Changes
+
+- 34a74eb: Recordings end once they have uploaded 40 MB of raw event data. Pages that rewrite themselves nonstop (tickers, carousels, animated counters) no longer produce recordings too heavy to load in the player.
+
 ## 0.2.2
 
 ### Patch Changes

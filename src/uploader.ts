@@ -21,6 +21,12 @@ import { backoff, type Api } from "./transport";
 
 export const FLUSH_MS = 30_000;
 export const FLUSH_BYTES = 256 * 1024;
+/**
+ * Most raw rrweb JSON one recording uploads. A page that rewrites itself nonstop (a ticker, a
+ * carousel, an animated counter) compresses ~40:1, so its gzip stays small while the player has
+ * to inflate, parse and replay hundreds of MB; past this the recording ends (reason "limit").
+ */
+export const MAX_RECORDING_RAW_BYTES = 40 * 1024 * 1024;
 
 const pendingKey = (sid: string) => `rk:pending:${sid}`;
 
@@ -59,6 +65,7 @@ export class Uploader {
     private readonly states: StateStore,
     private readonly ids: { sid: string; vid: string },
     private readonly hooks: UploaderHooks,
+    private readonly maxRawBytes = MAX_RECORDING_RAW_BYTES,
   ) {}
 
   private state(): SessionState {
@@ -134,7 +141,13 @@ export class Uploader {
       return false;
     }
     const file: ReplayKitChunkFile = { v: 1, rid: s.rid, seq: s.seq, events: this.inflight };
-    const blob = await gzip(JSON.stringify(file));
+    const json = JSON.stringify(file);
+    // Over the per-recording cap: the recording ends with what it already has.
+    if ((s.rawBytes ?? 0) + json.length > this.maxRawBytes) {
+      this.stop("limit");
+      return false;
+    }
+    const blob = await gzip(json);
     if (blob.size > REPLAYKIT_MAX_CHUNK_BYTES) {
       // Too big for one chunk: send the first half now, the rest goes back to the head of the queue.
       if (this.inflight.length > 1) {
@@ -170,7 +183,7 @@ export class Uploader {
       this.lastPageRid = s.rid;
     }
     const cur = this.state();
-    if (cur.rid === s.rid) this.states.save({ ...cur, seq: s.seq + 1 });
+    if (cur.rid === s.rid) this.states.save({ ...cur, seq: s.seq + 1, rawBytes: (cur.rawBytes ?? 0) + json.length });
     // Hidden tab whose upload still went through: the parked copy must not replay it on the next page.
     if (this.parked) {
       if (this.queue.length) this.persist();
